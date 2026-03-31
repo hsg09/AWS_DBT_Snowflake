@@ -569,6 +569,9 @@ Both dbt and Airflow provide powerful web interfaces. Follow these steps to mana
     airflow standalone
     ```
 *   **Access**: [http://localhost:8080](http://localhost:8080) (or [8081](http://localhost:8081))
+*   **Credentials**:
+    *   **Username**: `admin`
+    *   **Password**: Located in `airflow/simple_auth_manager_passwords.json.generated`
 *   **Stop**: Press `Ctrl + C` in the terminal.
 
 ### 🛠️ Handling Port Conflicts

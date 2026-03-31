@@ -8,6 +8,7 @@ dependencies = [
     "dbt-core>=1.11.7",
     "dbt-snowflake>=1.11.3",
     "snowflake-connector-python>=3.0.0",  # for CI schema cleanup + admin scripts
+    "apache-airflow>=2.10.0",            # Core Airflow orchestrator
     "apache-airflow-providers-snowflake>=5.0.0",  # Airflow Snowflake operator
 ]
 
