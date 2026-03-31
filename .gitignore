@@ -51,10 +51,12 @@ credentials/
 # ----- Airflow -----
 airflow/logs/
 airflow/plugins/
-airflow.db*           # Ignores .db, .db-shm, .db-wal
+airflow/airflow.db*           # Ignores .db, .db-shm, .db-wal in the airflow/ directory
+airflow.db*                   # Root-level safety
 airflow.cfg
 airflow/*.generated
 airflow/standalone_admin_password.txt
+start_airflow.sh              # Local convenience script
 
 # ----- Testing -----
 .pytest_cache/
