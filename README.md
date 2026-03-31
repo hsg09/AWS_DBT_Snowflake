@@ -92,7 +92,7 @@ The pipeline is fortified by a robust test suite using native and custom generic
 
 For a thorough deep-dive into the pipeline architecture, data journey, and step-by-step setup, refer to the following documentation:
 
-- 🛤️ [**Step-by-Step Data Journey**](./DATA_TRANSFORMATION_JOURNEY.md): Visualize how a single record evolves as it moves through the Bronze, Silver, and Gold layers of our warehouse.
+- 🛤️ [**Step-by-Step Data Journey**](./docs/DATA_TRANSFORMATION_JOURNEY.md): Visualize how a single record evolves as it moves through the Bronze, Silver, and Gold layers of our warehouse.
 - 🚀 [**Project Walkthrough (Idea & Strategy)**](./docs/PROJECT_WALKTHROUGH.md): A conceptual overview explaining the "Why" and "How" of this project, including our tech stack and final goals.
 - 📘 [**Step-by-Step Execution Guide**](./docs/EXECUTION_GUIDE.md): Complete instructions for standing up the AWS Bucket, Snowflake Environment, and local dbt setup from scratch.
 
