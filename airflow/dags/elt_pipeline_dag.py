@@ -31,23 +31,29 @@ from airflow import DAG
 from airflow.models import Variable
 from airflow.operators.bash import BashOperator
 from airflow.operators.empty import EmptyOperator
-from airflow.providers.snowflake.operators.snowflake import SnowflakeOperator
+from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
 from airflow.utils.task_group import TaskGroup
 from airflow.utils.trigger_rule import TriggerRule
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-DBT_PROJECT_DIR = Variable.get("DBT_PROJECT_DIR", "/opt/airflow/dbt/aws_dbt_snowflake_project")
-DBT_PROFILES_DIR = Variable.get("DBT_PROFILES_DIR", "/opt/airflow/dbt")
-DBT_TARGET = Variable.get("DBT_TARGET", "prod")
+# Dynamically discover the project root based on the DAG file location
+# Path: .../AWS_DBT_Snowflake/airflow/dags/elt_pipeline_dag.py -> .../AWS_DBT_Snowflake
+DAG_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(DAG_DIR, "../.."))
+
+DBT_PROJECT_DIR = Variable.get("DBT_PROJECT_DIR", PROJECT_ROOT)
+DBT_PROFILES_DIR = Variable.get("DBT_PROFILES_DIR", f"{os.path.expanduser('~')}/.dbt")
+DBT_TARGET = Variable.get("DBT_TARGET", "dev")
 DBT_THREADS = Variable.get("DBT_THREADS", "8")
 SNOWFLAKE_CONN_ID = "snowflake_default"
 
 # Common dbt command prefix
 DBT = (
     f"cd {DBT_PROJECT_DIR} && "
-    f"dbt --no-use-colors "
+    f"{PROJECT_ROOT}/.venv/bin/dbt "
+    f"--no-use-colors "
     f"--profiles-dir {DBT_PROFILES_DIR} "
     f"--target {DBT_TARGET} "
 )
@@ -57,7 +63,7 @@ def on_failure_callback(context):
     """Send alert on task failure. Extend with Slack/PagerDuty as needed."""
     dag_id  = context["dag"].dag_id
     task_id = context["task_instance"].task_id
-    exec_dt = context["execution_date"]
+    exec_dt = context["logical_date"]
     log_url = context["task_instance"].log_url
     print(f"ALERT: {dag_id}.{task_id} failed at {exec_dt}. Log: {log_url}")
     # Example Slack notification (requires airflow-slack provider):
@@ -89,7 +95,7 @@ with DAG(
     dag_id="elt_pipeline",
     description="E-commerce ELT: S3 → Snowflake Raw → DBT Staging → Marts",
     default_args=DEFAULT_ARGS,
-    schedule_interval="*/15 * * * *",   # every 15 minutes
+    schedule="*/15 * * * *",   # every 15 minutes
     catchup=False,                       # don't backfill historical runs
     max_active_runs=1,                   # prevent concurrent pipeline runs
     tags=["elt", "snowflake", "dbt", "ecommerce"],
@@ -108,17 +114,14 @@ with DAG(
 
         # Execute the root Snowflake task tree (which calls child tasks for each entity)
         # Using EXECUTE TASK instead of RESUME to trigger a single run
-        trigger_infer_schema = SnowflakeOperator(
+        trigger_infer_schema = SQLExecuteQueryOperator(
             task_id="trigger_infer_schema",
-            snowflake_conn_id=SNOWFLAKE_CONN_ID,
+            conn_id=SNOWFLAKE_CONN_ID,
             sql="""
                 EXECUTE TASK RAW.ECOMMERCE.TASK_INFER_SCHEMA;
                 -- Wait briefly before checking status
                 CALL SYSTEM$WAIT(30);
             """,
-            warehouse="LOADER_WH",
-            database="RAW",
-            schema="ECOMMERCE",
         )
 
         # Poll until ingestion tasks complete (simple approach: wait 2 minutes)
