@@ -1,0 +1,20 @@
+category_id,category_name,parent_category
+ELEC,Electronics,General
+MOBI,Mobile Phones,Electronics
+LAPT,Laptops,Electronics
+WEAR,Wearables,Electronics
+FASH,Fashion,General
+CLOT,Clothing,Fashion
+SHOE,Footwear,Fashion
+ACCS,Accessories,Fashion
+HOME,Home & Garden,General
+FURN,Furniture,Home & Garden
+KITC,Kitchen,Home & Garden
+BOOK,Books & Media,General
+SPRT,Sports & Outdoors,General
+AUTO,Automotive,General
+FOOD,Food & Grocery,General
+HLTH,Health & Beauty,General
+TOYS,Toys & Games,General
+OFFC,Office Supplies,General
+UNCG,Uncategorized,General

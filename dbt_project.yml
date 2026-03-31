@@ -1,0 +1,128 @@
+name: 'aws_dbt_snowflake_project'
+version: '1.0.0'
+config-version: 2
+
+# Profile used for Snowflake connection
+profile: 'aws_dbt_snowflake_project'
+
+# Directory layout
+model-paths:    ["models"]
+analysis-paths: ["analyses"]
+test-paths:     ["tests"]
+seed-paths:     ["seeds"]
+macro-paths:    ["macros"]
+snapshot-paths: ["snapshots"]
+docs-paths:     ["docs"]
+asset-paths:    ["assets"]
+
+target-path:    "target"
+clean-targets:  ["target", "dbt_packages"]
+
+# ---------------------------------------------------------------------------
+# Variables (override per environment via --vars or profiles.yml)
+# ---------------------------------------------------------------------------
+vars:
+  # Source database and schema (where raw data lands)
+  raw_database:   "RAW"
+  raw_schema:     "ECOMMERCE"
+
+  # Incremental lookback window (prevents scanning full table on incremental runs)
+  # Set to a wider window (e.g. 3 days) to handle late-arriving data.
+  incremental_lookback_days: 3
+
+  # Date range filter for backfill runs
+  # Override: dbt run --vars '{"start_date": "2024-01-01", "end_date": "2024-01-31"}'
+  start_date: "2020-01-01"
+  end_date:   "2099-12-31"
+
+  # Data masking toggle (set to true in dev to work with real data)
+  apply_masking: true
+
+  # Multi-tenant support (empty = single-tenant, set to match column if multi-tenant)
+  tenant_id_column: ""
+
+# ---------------------------------------------------------------------------
+# Model configurations by layer
+# ---------------------------------------------------------------------------
+models:
+  aws_dbt_snowflake_project:
+
+    # ----- STAGING LAYER -----
+    # Materialised as views in dev (fast iteration, no storage cost)
+    # Materialised as tables in prod (performance, stable for downstream)
+    staging:
+      materialized: "{{ 'table' if target.name == 'prod' else 'view' }}"
+      schema: staging              # ANALYTICS.STAGING_<dev/prod>
+      tags: ["staging", "raw_dependent"]
+      on_schema_change: "append_new_columns"   # handle schema drift gracefully
+      grants:
+        select: ["TRANSFORMER"]
+
+    # ----- INTERMEDIATE LAYER -----
+    # Ephemeral in dev to avoid materializing intermediate state
+    # Views in prod — fast and no storage cost since marts reference them
+    intermediate:
+      materialized: "{{ 'view' if target.name == 'prod' else 'ephemeral' }}"
+      schema: intermediate
+      tags: ["intermediate"]
+      on_schema_change: "append_new_columns"
+      grants:
+        select: ["TRANSFORMER"]
+
+    # ----- MARTS LAYER -----
+    # Incremental tables for facts (large, append-dominant)
+    # Tables for dimensions (small, full-refresh-able)
+    marts:
+      materialized: table
+      schema: marts
+      tags: ["marts", "business_facing"]
+      on_schema_change: "append_new_columns"
+      grants:
+        select: ["ANALYST", "TRANSFORMER"]
+
+      # Fact tables: incremental
+      fct_orders:
+        materialized: incremental
+        unique_key: order_sk
+        incremental_strategy: merge
+        cluster_by: ["order_date_day", "customer_sk"]
+        tags: ["fact"]
+
+      # Dimension tables: full refresh (small, manageable)
+      dim_customers:
+        materialized: table
+        cluster_by: ["customer_id"]
+        tags: ["dimension"]
+
+      dim_products:
+        materialized: table
+        cluster_by: ["product_id"]
+        tags: ["dimension"]
+
+# ---------------------------------------------------------------------------
+# Snapshot configurations
+# ---------------------------------------------------------------------------
+snapshots:
+  aws_dbt_snowflake_project:
+    target_schema: snapshots
+    strategy: timestamp
+    updated_at: updated_at
+
+# ---------------------------------------------------------------------------
+# Seed configurations (small reference / lookup tables)
+# ---------------------------------------------------------------------------
+seeds:
+  aws_dbt_snowflake_project:
+    schema: seeds
+    quote_columns: false
+    country_codes:
+      column_types:
+        country_code: varchar(3)
+        country_name: varchar(200)
+        region:       varchar(100)
+    product_categories:
+      column_types:
+        category_id:   varchar(50)
+        category_name: varchar(200)
+        parent_category: varchar(200)
+

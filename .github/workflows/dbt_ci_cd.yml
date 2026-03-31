@@ -1,0 +1,361 @@
+# =============================================================================
+# GitHub Actions: dbt CI/CD Pipeline
+# File: .github/workflows/dbt_ci_cd.yml
+#
+# Triggers:
+#   - Pull Request to main → CI check (compile + dev run + test)
+#   - Push to main → Production promotion (prod run + test)
+#
+# Environment promotion: dev → (PR validation) → prod
+#
+# Secrets required (set in GitHub → Settings → Secrets & Variables → Actions):
+#   SNOWFLAKE_ACCOUNT    : <account>.<region>  (e.g. xy12345.us-east-1)
+#   SNOWFLAKE_USER       : service account username
+#   SNOWFLAKE_PASSWORD   : service account password
+#   SNOWFLAKE_ROLE       : TRANSFORMER
+#   SNOWFLAKE_WAREHOUSE  : TRANSFORMER_WH
+#   SNOWFLAKE_DATABASE   : ANALYTICS
+#   SLACK_WEBHOOK_URL    : (optional) for failure notifications
+# =============================================================================
+
+name: "DBT CI/CD Pipeline"
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "models/**"
+      - "macros/**"
+      - "tests/**"
+      - "snapshots/**"
+      - "seeds/**"
+      - "dbt_project.yml"
+      - "packages.yml"
+      - ".github/workflows/dbt_ci_cd.yml"
+
+  push:
+    branches: [main]
+    paths:
+      - "models/**"
+      - "macros/**"
+      - "tests/**"
+      - "snapshots/**"
+      - "seeds/**"
+      - "dbt_project.yml"
+      - "packages.yml"
+
+  # Allow manual trigger for backfill / emergency re-runs
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "dbt target (dev / ci / prod)"
+        required: true
+        default: "prod"
+      select:
+        description: "dbt --select expression (leave blank for full run)"
+        required: false
+        default: ""
+
+concurrency:
+  # Cancel in-progress runs on same branch (prevents queued stale deployments)
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+env:
+  # Shared environment variables for all dbt commands
+  SNOWFLAKE_ACCOUNT:   ${{ secrets.SNOWFLAKE_ACCOUNT }}
+  SNOWFLAKE_USER:      ${{ secrets.SNOWFLAKE_USER }}
+  SNOWFLAKE_PASSWORD:  ${{ secrets.SNOWFLAKE_PASSWORD }}
+  SNOWFLAKE_ROLE:      ${{ secrets.SNOWFLAKE_ROLE || 'TRANSFORMER' }}
+  SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE || 'TRANSFORMER_WH' }}
+  SNOWFLAKE_DATABASE:  ${{ secrets.SNOWFLAKE_DATABASE || 'ANALYTICS' }}
+  DBT_DEV_USER:        "ci"
+  GITHUB_RUN_ID:       ${{ github.run_id }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: CI — runs on every PR to main
+  # ---------------------------------------------------------------------------
+  dbt-ci:
+    name: "DBT CI (PR Validation)"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 45
+
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+
+      - name: "Set up Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: "Install dbt + dependencies"
+        run: |
+          pip install --upgrade pip
+          pip install dbt-snowflake>=1.11.0
+
+      - name: "Copy profiles.yml to ~/.dbt/"
+        run: |
+          mkdir -p ~/.dbt
+          cp profiles.yml ~/.dbt/profiles.yml
+
+      - name: "dbt deps (install packages)"
+        run: dbt deps --profiles-dir ~/.dbt --target ci
+
+      - name: "dbt compile (syntax check — no Snowflake connection needed)"
+        run: dbt compile --profiles-dir ~/.dbt --target ci
+
+      - name: "dbt seed (load reference seeds to CI schema)"
+        run: |
+          dbt seed \
+            --profiles-dir ~/.dbt \
+            --target ci \
+            --full-refresh
+
+      - name: "dbt run (staging layer only — fast CI feedback)"
+        run: |
+          dbt run \
+            --profiles-dir ~/.dbt \
+            --target ci \
+            --select tag:staging \
+            --threads 8 \
+            --fail-fast
+
+      - name: "dbt test (staging — fail PR if tests fail)"
+        run: |
+          dbt test \
+            --profiles-dir ~/.dbt \
+            --target ci \
+            --select tag:staging \
+            --store-failures \
+            --threads 8
+
+      - name: "dbt snapshot (SCD Type 2 — run after staging)"
+        run: |
+          dbt snapshot \
+            --profiles-dir ~/.dbt \
+            --target ci
+
+      - name: "dbt run (intermediate + marts on CI schema)"
+        run: |
+          dbt run \
+            --profiles-dir ~/.dbt \
+            --target ci \
+            --select tag:intermediate tag:marts \
+            --threads 8
+
+      - name: "dbt test (marts)"
+        run: |
+          dbt test \
+            --profiles-dir ~/.dbt \
+            --target ci \
+            --select tag:marts \
+            --store-failures
+
+      - name: "Upload dbt artifacts"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "dbt-ci-artifacts-${{ github.run_id }}"
+          path: |
+            target/manifest.json
+            target/run_results.json
+          retention-days: 7
+
+      - name: "Cleanup CI schema (drop ephemeral CI objects)"
+        if: always()    # always clean up even on failure
+        env:
+          CI_SCHEMA: "CI_${{ github.run_id }}"
+        run: |
+          echo "Cleaning up Snowflake CI schema: ${CI_SCHEMA}"
+          # Use SnowSQL or Python to drop the schema
+          python - <<EOF
+          import snowflake.connector
+          import os
+          conn = snowflake.connector.connect(
+              account=os.environ['SNOWFLAKE_ACCOUNT'],
+              user=os.environ['SNOWFLAKE_USER'],
+              password=os.environ['SNOWFLAKE_PASSWORD'],
+              role=os.environ['SNOWFLAKE_ROLE'],
+              warehouse=os.environ['SNOWFLAKE_WAREHOUSE'],
+              database=os.environ['SNOWFLAKE_DATABASE'],
+          )
+          conn.cursor().execute(f"DROP SCHEMA IF EXISTS {os.environ['CI_SCHEMA']}")
+          conn.close()
+          print(f"Dropped schema: {os.environ['CI_SCHEMA']}")
+          EOF
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Production deployment — runs on merge to main
+  # ---------------------------------------------------------------------------
+  dbt-prod-deploy:
+    name: "DBT Production Deploy"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 120
+    environment:
+      name: production       # Requires approval via GitHub Environments (recommended)
+
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+
+      - name: "Set up Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: "Install dbt + dependencies"
+        run: |
+          pip install --upgrade pip
+          pip install dbt-snowflake>=1.11.0
+
+      - name: "Copy profiles.yml to ~/.dbt/"
+        run: |
+          mkdir -p ~/.dbt
+          cp profiles.yml ~/.dbt/profiles.yml
+
+      - name: "dbt deps"
+        run: dbt deps --profiles-dir ~/.dbt --target prod
+
+      - name: "dbt seed (idempotent — always sync reference tables)"
+        run: |
+          dbt seed \
+            --profiles-dir ~/.dbt \
+            --target prod
+
+      - name: "dbt run — staging"
+        run: |
+          dbt run \
+            --profiles-dir ~/.dbt \
+            --target prod \
+            --select tag:staging \
+            --threads 8 \
+            --fail-fast
+
+      - name: "dbt test — staging"
+        run: |
+          dbt test \
+            --profiles-dir ~/.dbt \
+            --target prod \
+            --select tag:staging \
+            --store-failures
+
+      - name: "dbt snapshot (SCD Type 2 — run after staging)"
+        run: |
+          dbt snapshot \
+            --profiles-dir ~/.dbt \
+            --target prod
+
+      - name: "dbt run — intermediate"
+        run: |
+          dbt run \
+            --profiles-dir ~/.dbt \
+            --target prod \
+            --select tag:intermediate \
+            --threads 8
+
+      - name: "dbt run — marts"
+        run: |
+          dbt run \
+            --profiles-dir ~/.dbt \
+            --target prod \
+            --select tag:marts \
+            --threads 8 \
+            --fail-fast
+
+      - name: "dbt test — marts + singular tests"
+        run: |
+          dbt test \
+            --profiles-dir ~/.dbt \
+            --target prod \
+            --store-failures \
+            --threads 8
+
+      - name: "dbt source freshness"
+        run: |
+          dbt source freshness \
+            --profiles-dir ~/.dbt \
+            --target prod
+        continue-on-error: true   # informational; don't block deploy on freshness alone
+
+      - name: "Generate dbt docs"
+        run: |
+          dbt docs generate \
+            --profiles-dir ~/.dbt \
+            --target prod
+
+      - name: "Upload dbt artifacts (manifest + run results)"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "dbt-prod-artifacts-${{ github.run_id }}"
+          path: |
+            target/manifest.json
+            target/run_results.json
+            target/catalog.json
+          retention-days: 30
+
+      - name: "Notify Slack on failure"
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": ":red_circle: *DBT Production Deploy Failed*\nRun: ${{ github.run_id }}\nCommit: ${{ github.sha }}\nActor: ${{ github.actor }}\nURL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Manual / backfill run (workflow_dispatch only)
+  # ---------------------------------------------------------------------------
+  dbt-manual-run:
+    name: "DBT Manual Run"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - run: pip install dbt-snowflake>=1.11.0
+
+      - run: |
+          mkdir -p ~/.dbt
+          cp profiles.yml ~/.dbt/profiles.yml
+
+      - run: dbt deps --profiles-dir ~/.dbt --target ${{ github.event.inputs.target }}
+
+      - name: "dbt run (manual — select override supported)"
+        run: |
+          SELECT_CLAUSE=""
+          if [ -n "${{ github.event.inputs.select }}" ]; then
+            SELECT_CLAUSE="--select ${{ github.event.inputs.select }}"
+          fi
+          dbt run \
+            --profiles-dir ~/.dbt \
+            --target ${{ github.event.inputs.target }} \
+            ${SELECT_CLAUSE} \
+            --threads 8
+
+      - name: "dbt test (manual)"
+        run: |
+          SELECT_CLAUSE=""
+          if [ -n "${{ github.event.inputs.select }}" ]; then
+            SELECT_CLAUSE="--select ${{ github.event.inputs.select }}"
+          fi
+          dbt test \
+            --profiles-dir ~/.dbt \
+            --target ${{ github.event.inputs.target }} \
+            ${SELECT_CLAUSE} \
+            --store-failures

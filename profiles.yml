@@ -1,0 +1,86 @@
+# =============================================================================
+# profiles.yml — Snowflake connection profiles for dbt
+#
+# ⚠️  IMPORTANT SECURITY NOTE:
+#     - This file is committed to the repo as a TEMPLATE ONLY.
+#     - All sensitive values are replaced with environment variable references.
+#     - Copy to ~/.dbt/profiles.yml and set environment variables locally.
+#     - In CI/CD, inject via GitHub Secrets (see .github/workflows/dbt_ci_cd.yml).
+#     - NEVER hardcode passwords, private keys, or account IDs in this file.
+#
+# Usage:
+#   dbt run --target dev    (development: your personal schema, X-SMALL wh)
+#   dbt run --target prod   (production:  shared schema, SMALL wh, TRANSFORMER role)
+# =============================================================================
+
+aws_dbt_snowflake_project:
+  target: dev
+
+  outputs:
+
+    # -------------------------------------------------------------------------
+    # Development target
+    # -------------------------------------------------------------------------
+    dev:
+      type: snowflake
+      account:   "{{ env_var('SNOWFLAKE_ACCOUNT') }}"        # e.g. xyz12345.us-east-1
+      user:      "{{ env_var('SNOWFLAKE_USER') }}"
+      password:  "{{ env_var('SNOWFLAKE_PASSWORD') }}"       # or use private_key_path
+
+      # Alternatively, use key-pair authentication (recommended for production):
+      # private_key_path:       "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}"
+      # private_key_passphrase: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE') }}"
+
+      role:      "{{ env_var('SNOWFLAKE_ROLE', 'DATA_ENGINEER') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'TRANSFORMER_WH') }}"
+      database:  "{{ env_var('SNOWFLAKE_DATABASE', 'ANALYTICS') }}"
+
+      # Dev schema pattern: each developer gets their own schema (no collisions)
+      schema:    "DEV_{{ env_var('DBT_DEV_USER', 'local') | upper }}"
+
+      threads:   4           # parallelism (keep low for dev to avoid WH contention)
+      keepalive_idle: 0
+      connect_retries: 2
+      connect_timeout: 10
+
+      # Query tag for cost attribution and monitoring
+      query_tag: "dbt_dev_{{ env_var('DBT_DEV_USER', 'local') }}"
+
+      # Client session keep-alive (prevents disconnects during long runs)
+      client_session_keep_alive: true
+
+    # -------------------------------------------------------------------------
+    # CI target (used in GitHub Actions on PRs)
+    # -------------------------------------------------------------------------
+    ci:
+      type: snowflake
+      account:   "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user:      "{{ env_var('SNOWFLAKE_USER') }}"
+      password:  "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      role:      "TRANSFORMER"
+      warehouse: "TRANSFORMER_WH"
+      database:  "ANALYTICS"
+      schema:    "CI_{{ env_var('GITHUB_RUN_ID', 'local') }}"    # unique per PR
+      threads:   8
+      query_tag: "dbt_ci_{{ env_var('GITHUB_RUN_ID', 'local') }}"
+      client_session_keep_alive: true
+      connect_retries: 3
+      connect_timeout: 30
+
+    # -------------------------------------------------------------------------
+    # Production target
+    # -------------------------------------------------------------------------
+    prod:
+      type: snowflake
+      account:   "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user:      "{{ env_var('SNOWFLAKE_USER') }}"
+      password:  "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      role:      "TRANSFORMER"
+      warehouse: "TRANSFORMER_WH"
+      database:  "ANALYTICS"
+      schema:    "STAGING"       # root schema; dbt appends per-config schema suffix
+      threads:   8
+      query_tag: "dbt_prod"
+      client_session_keep_alive: true
+      connect_retries: 3
+      connect_timeout: 30

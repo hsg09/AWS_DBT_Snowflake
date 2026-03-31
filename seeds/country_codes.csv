@@ -1,0 +1,26 @@
+country_code,country_name,region
+US,United States,North America
+GB,United Kingdom,Europe
+DE,Germany,Europe
+FR,France,Europe
+CA,Canada,North America
+AU,Australia,Oceania
+IN,India,Asia
+SG,Singapore,Asia
+AE,United Arab Emirates,Middle East
+BR,Brazil,South America
+MX,Mexico,North America
+NL,Netherlands,Europe
+SE,Sweden,Europe
+NO,Norway,Europe
+DK,Denmark,Europe
+CH,Switzerland,Europe
+IT,Italy,Europe
+ES,Spain,Europe
+PL,Poland,Europe
+JP,Japan,Asia
+KR,South Korea,Asia
+CN,China,Asia
+NZ,New Zealand,Oceania
+ZA,South Africa,Africa
+NG,Nigeria,Africa

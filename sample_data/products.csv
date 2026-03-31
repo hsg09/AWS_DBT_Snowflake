@@ -1,0 +1,31 @@
+PRODUCT_ID,PRODUCT_NAME,CATEGORY,BRAND,UNIT_COST,LIST_PRICE,IS_ACTIVE
+PROD-001,iPhone 15 Pro 256GB,Mobile Phones,Apple,600.00,999.99,TRUE
+PROD-002,Samsung Galaxy S24 Ultra,Mobile Phones,Samsung,550.00,1199.99,TRUE
+PROD-003,MacBook Pro 14-inch M3,Laptops,Apple,1400.00,1999.99,TRUE
+PROD-004,Dell XPS 15 OLED,Laptops,Dell,950.00,1599.99,TRUE
+PROD-005,Sony WH-1000XM5 Headphones,Electronics,Sony,180.00,349.99,TRUE
+PROD-006,Apple AirPods Pro 2nd Gen,Electronics,Apple,120.00,249.99,TRUE
+PROD-007,Nike Air Max 270,Footwear,Nike,65.00,150.00,TRUE
+PROD-008,Adidas Ultraboost 22,Footwear,Adidas,80.00,190.00,TRUE
+PROD-009,Levi's 501 Original Jeans,Clothing,Levis,25.00,69.99,TRUE
+PROD-010,Uniqlo Ultra Light Down Jacket,Clothing,Uniqlo,40.00,99.90,TRUE
+PROD-011,Kindle Paperwhite 2023,Electronics,Amazon,65.00,139.99,TRUE
+PROD-012,iPad Air 5th Gen,Electronics,Apple,400.00,749.99,TRUE
+PROD-013,IKEA ALEX Drawer Unit,Furniture,IKEA,55.00,139.00,TRUE
+PROD-014,Dyson V15 Detect Vacuum,Home & Garden,Dyson,250.00,749.99,TRUE
+PROD-015,Instant Pot Duo 7-in-1,Kitchen,Instant Pot,45.00,99.95,TRUE
+PROD-016,GoPro HERO12 Black,Electronics,GoPro,220.00,399.99,TRUE
+PROD-017,Ray-Ban Aviator Sunglasses,Accessories,Ray-Ban,60.00,161.00,TRUE
+PROD-018,Fitbit Charge 6,Wearables,Fitbit,70.00,159.95,TRUE
+PROD-019,Logitech MX Master 3S Mouse,Electronics,Logitech,40.00,99.99,TRUE
+PROD-020,Herman Miller Aeron Chair,Furniture,Herman Miller,900.00,1695.00,TRUE
+PROD-021,The Pragmatic Programmer,Books & Media,Addison-Wesley,18.00,49.99,TRUE
+PROD-022,Yeti Rambler 36oz Bottle,Home & Garden,Yeti,18.00,45.00,TRUE
+PROD-023,Patagonia Nano Puff Jacket,Clothing,Patagonia,100.00,279.00,TRUE
+PROD-024,Nintendo Switch OLED,Electronics,Nintendo,225.00,349.99,TRUE
+PROD-025,Sony PlayStation 5,Electronics,Sony,399.00,499.99,FALSE
+PROD-026,Bose SoundLink Flex Speaker,Electronics,Bose,90.00,149.00,TRUE
+PROD-027,Apple Watch Series 9,Wearables,Apple,280.00,399.00,TRUE
+PROD-028,Waterpik Water Flosser,Health & Beauty,Waterpik,25.00,59.99,TRUE
+PROD-029,LEGO Technic Ferrari 499P,Toys & Games,LEGO,120.00,279.99,TRUE
+PROD-030,Anker 65W USB-C Charger,Electronics,Anker,12.00,35.99,TRUE

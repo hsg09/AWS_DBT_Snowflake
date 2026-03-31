@@ -1,0 +1,170 @@
+version: 2
+
+# =============================================================================
+# Source definitions for RAW.ECOMMERCE tables
+# =============================================================================
+sources:
+  - name: raw_ecommerce
+    description: "Raw e-commerce data landed from S3 via Snowflake dynamic COPY INTO procedure"
+    database: "{{ var('raw_database', 'RAW') }}"
+    schema:   "{{ var('raw_schema', 'ECOMMERCE') }}"
+
+    # Source-level freshness check (dbt source freshness command)
+    freshness:
+      warn_after:  {count: 12, period: hour}
+      error_after: {count: 24, period: hour}
+    loaded_at_field: _LOADED_AT
+
+    tables:
+      - name: orders
+        description: "Raw orders — loaded from S3 CSV files via COPY INTO"
+        columns:
+          - name: ORDER_ID
+            description: "Unique order identifier (source business key)"
+            tests: [not_null]
+          - name: CUSTOMER_ID
+            description: "Reference to the customer who placed the order"
+            tests: [not_null]
+          - name: ORDER_STATUS
+            description: "Current order status from source system"
+          - name: ORDER_AMOUNT
+            description: "Gross order value in USD"
+          - name: _LOADED_AT
+            description: "Timestamp when row was loaded into Snowflake raw layer"
+            tests: [not_null]
+
+      - name: customers
+        description: "Raw customers — JSON payload loaded as VARIANT from S3"
+        columns:
+          - name: CUSTOMER_ID
+            description: "Unique customer identifier"
+            tests: [not_null]
+          - name: EMAIL
+            description: "Customer email (PII — masked for ANALYST role)"
+          - name: _LOADED_AT
+            tests: [not_null]
+
+      - name: order_items
+        description: "Raw order line items — one row per product per order"
+        columns:
+          - name: ORDER_ITEM_ID
+            tests: [not_null]
+          - name: ORDER_ID
+            tests: [not_null]
+          - name: PRODUCT_ID
+            tests: [not_null]
+          - name: _LOADED_AT
+            tests: [not_null]
+
+      - name: products
+        description: "Raw product catalog from S3 CSV files"
+        columns:
+          - name: PRODUCT_ID
+            tests: [not_null]
+          - name: _LOADED_AT
+            tests: [not_null]
+
+# =============================================================================
+# Staging model definitions
+# =============================================================================
+models:
+  - name: stg_raw__orders
+    description: |
+      Cleaned and typed orders from the raw layer.
+      Deduplication: last write wins per order_id (ordered by _loaded_at desc).
+      Incremental: merges new/updated rows using order_id as unique key.
+    columns:
+      - name: order_id
+        description: "Business key — unique order identifier"
+        tests:
+          - not_null
+          - unique
+
+      - name: customer_id
+        description: "FK to stg_raw__customers"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_raw__customers')
+              field: customer_id
+              severity: warn  # warn not error — referential integrity not enforced in raw
+
+      - name: order_status
+        description: "Normalised (lowercase) order status"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['pending','processing','shipped','delivered','completed','cancelled','refunded']
+              severity: warn
+
+      - name: order_amount_usd
+        description: "Gross order value in USD. Should always be >= 0"
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              severity: warn
+
+      - name: order_date
+        description: "Date order was placed"
+        tests:
+          - not_null
+
+      - name: is_date_anomaly
+        description: "True when shipped_date precedes order_date — data quality flag"
+
+      - name: _raw_loaded_at
+        description: "When the raw row was loaded into Snowflake (pipeline audit)"
+        tests: [not_null]
+
+  - name: stg_raw__customers
+    description: |
+      Cleaned and typed customers with JSON VARIANT flattened to typed scalars.
+      PII columns (email, phone) are masked at the Snowflake table level.
+    columns:
+      - name: customer_id
+        tests: [not_null, unique]
+      - name: email
+        tests: [not_null]
+      - name: country_code
+        tests: [not_null]
+      - name: customer_segment
+        tests:
+          - accepted_values:
+              values: ['bronze','silver','gold','platinum','vip']
+              severity: warn
+
+  - name: stg_raw__order_items
+    description: "Cleaned order line items with derived financial columns"
+    columns:
+      - name: order_item_id
+        tests: [not_null, unique]
+      - name: order_id
+        tests: [not_null]
+      - name: product_id
+        tests: [not_null]
+      - name: quantity
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 10000
+              severity: warn
+      - name: line_total_usd
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              severity: warn
+
+  - name: stg_raw__products
+    description: "Cleaned product catalog with type casting"
+    columns:
+      - name: product_id
+        tests: [not_null, unique]
+      - name: product_name
+        tests: [not_null]
+      - name: unit_cost_usd
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              severity: warn

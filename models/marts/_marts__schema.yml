@@ -1,0 +1,129 @@
+version: 2
+
+models:
+  - name: fct_orders
+    description: |
+      **Fact table — one row per order (grain = order_id)**
+
+      Incremental merge using `order_sk` (SHA2 hash of order_id) as unique key.
+      Clustered by `(order_date_day, customer_sk)` for partition pruning on common query patterns.
+      FK references: `dim_customers` (customer_sk), `dim_products` (via order_items bridge — future).
+    columns:
+      - name: order_sk
+        description: "Surrogate key — SHA2 hash of order_id"
+        tests: [not_null, unique]
+
+      - name: order_id
+        description: "Business key from source system"
+        tests: [not_null]
+
+      - name: customer_sk
+        description: "FK to dim_customers (current record)"
+        tests:
+          - not_null:
+              severity: warn
+          - relationships:
+              to: ref('dim_customers')
+              field: customer_sk
+              severity: warn
+
+      - name: order_date_day
+        description: "Date of order placement (grain date)"
+        tests: [not_null]
+
+      - name: order_status
+        description: "Current order status"
+        tests:
+          - accepted_values:
+              values: ['pending','processing','shipped','delivered','completed','cancelled','refunded']
+
+      - name: revenue_usd
+        description: "Actual recognized revenue (items total or header amount)"
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              severity: warn
+
+      - name: line_item_count
+        description: "Number of distinct line items in the order"
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              severity: warn
+
+      - name: _raw_loaded_at
+        description: "Source-level loaded_at timestamp — used for freshness checks"
+        tests: [not_null]
+
+  - name: dim_customers
+    description: |
+      **Customer conformed dimension (current records only from SCD Type 2 snapshot)**
+
+      Combines profile attributes (from stg/snap) with behavioural metrics (from LTV intermediate model).
+      One row per active customer_id version. `is_current = TRUE` for the latest version.
+    columns:
+      - name: customer_sk
+        description: "Surrogate key — MD5 of customer_id"
+        tests: [not_null, unique]
+
+      - name: customer_id
+        description: "Business key from source system"
+        tests: [not_null, unique]
+
+      - name: country_code
+        description: "ISO 2-letter country code (uppercased)"
+        tests: [not_null]
+
+      - name: customer_segment
+        description: "Customer tier / segment"
+        tests:
+          - accepted_values:
+              values: ['bronze','silver','gold','platinum','vip']
+              severity: warn
+
+      - name: lifetime_value_usd
+        description: "Cumulative completed-order revenue"
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              severity: warn
+
+      - name: rfm_segment
+        description: "RFM-based customer segment label"
+        tests:
+          - accepted_values:
+              values: ['champions','loyal','new_customer','at_risk','cant_lose','lost','potential_loyalist']
+              severity: warn
+
+      - name: is_active
+        description: "True if customer placed an order within last 90 days"
+        tests: [not_null]
+
+      - name: is_current
+        description: "SCD Type 2 flag — TRUE for the active customer version"
+        tests: [not_null]
+
+  - name: dim_products
+    description: |
+      **Product conformed dimension with margin tier and category enrichment.**
+      Full-refresh (small table, no CDC needed for product catalog).
+    columns:
+      - name: product_sk
+        description: "Surrogate key — SHA2 hash of product_id"
+        tests: [not_null, unique]
+
+      - name: product_id
+        description: "Business key from source"
+        tests: [not_null, unique]
+
+      - name: product_name
+        tests: [not_null]
+
+      - name: margin_tier
+        tests:
+          - accepted_values:
+              values: ['high','medium','low']
+
+      - name: is_active
+        tests: [not_null]

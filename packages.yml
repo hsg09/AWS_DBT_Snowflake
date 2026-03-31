@@ -1,0 +1,16 @@
+packages:
+  # Core dbt utility macros (generate_surrogate_key, date_spine, etc.)
+  - package: dbt-labs/dbt_utils
+    version: [">=1.3.0", "<2.0.0"]
+
+  # Advanced data quality tests (expect_column_values_to_be_between, etc.)
+  - package: metaplane/dbt_expectations
+    version: [">=0.10.0", "<1.0.0"]
+
+  # Schema comparison between environments (audit-helper for CI validation)
+  - package: dbt-labs/audit_helper
+    version: [">=0.12.0", "<1.0.0"]
+
+  # DBT date utils (fiscal calendars, date dimensions)
+  - package: godatadriven/dbt_date
+    version: [">=0.10.0", "<1.0.0"]

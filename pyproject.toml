@@ -1,0 +1,23 @@
+[project]
+name = "aws-dbt-snowflake"
+version = "1.0.0"
+description = "Production-grade ELT pipeline: AWS S3 → Snowflake → dbt (staging → intermediate → marts), orchestrated by Airflow with GitHub Actions CI/CD"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "dbt-core>=1.11.7",
+    "dbt-snowflake>=1.11.3",
+    "snowflake-connector-python>=3.0.0",  # for CI schema cleanup + admin scripts
+    "apache-airflow-providers-snowflake>=5.0.0",  # Airflow Snowflake operator
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "black>=24.0.0",
+    "ruff>=0.4.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
