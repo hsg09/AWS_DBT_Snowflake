@@ -539,25 +539,43 @@ ORDER BY customer_id;
 Only needed for automated 15-minute scheduling.
 
 ```bash
-pip install apache-airflow apache-airflow-providers-snowflake
+# 1. Install Airflow (included in pyproject.toml)
+pip install apache-airflow
 
-# Set Airflow variables
-airflow variables set DBT_PROJECT_DIR /path/to/AWS_DBT_Snowflake
-airflow variables set DBT_PROFILES_DIR ~/.dbt
-airflow variables set DBT_TARGET prod
+# 2. Set Airflow Home directory
+export AIRFLOW_HOME=$(pwd)/airflow
 
-# Configure Snowflake connection
-airflow connections add snowflake_default \
-  --conn-type snowflake \
-  --conn-host ${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com \
-  --conn-login ${SNOWFLAKE_USER} \
-  --conn-password ${SNOWFLAKE_PASSWORD} \
-  --conn-extra '{"role": "TRANSFORMER", "warehouse": "TRANSFORMER_WH", "database": "ANALYTICS", "schema": "STAGING"}'
-
-# Copy DAG and trigger
-cp airflow/dags/elt_pipeline_dag.py ~/airflow/dags/
-airflow dags trigger elt_pipeline
+# 3. Start Airflow in standalone mode (on default port 8080)
+airflow standalone
 ```
+
+---
+
+## 🖥️ Managing User Interfaces (dbt & Airflow)
+
+Both dbt and Airflow provide powerful web interfaces. Follow these steps to manage them and resolve common port conflicts.
+
+### 📊 dbt Documentation UI
+*   **Start**: `dbt docs generate && dbt docs serve --port 8080`
+*   **Access**: [http://localhost:8080](http://localhost:8080)
+*   **Stop**: Press `Ctrl + C` in the terminal or kill the process: `lsof -ti:8080 | xargs kill -9`
+
+### 📅 Airflow Orchestrator UI
+*   **Start (Default)**: `export AIRFLOW_HOME=$(pwd)/airflow && airflow standalone`
+*   **Start (Alternative Port)**: If dbt is using 8080, run Airflow on **8081**:
+    ```bash
+    export AIRFLOW_HOME=$(pwd)/airflow
+    export AIRFLOW__WEBSERVER__WEB_SERVER_PORT=8081
+    airflow standalone
+    ```
+*   **Access**: [http://localhost:8080](http://localhost:8080) (or [8081](http://localhost:8081))
+*   **Stop**: Press `Ctrl + C` in the terminal.
+
+### 🛠️ Handling Port Conflicts
+If you see an error like `Address already in use`, it means another service is using the port.
+1.  **Check Port**: `lsof -i :8080`
+2.  **Kill Service**: `kill -9 <PID>`
+3.  **Alternative**: Use a different port as shown above for Airflow.
 
 ---
 
