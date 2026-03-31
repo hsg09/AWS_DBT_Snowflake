@@ -126,3 +126,11 @@ seeds:
         category_name: varchar(200)
         parent_category: varchar(200)
 
+# ---------------------------------------------------------------------------
+# Test configurations (singular tests)
+# ---------------------------------------------------------------------------
+tests:
+  aws_dbt_snowflake_project:
+    marts:
+      +tags: ["marts"]
+

@@ -49,14 +49,9 @@ DBT_TARGET = Variable.get("DBT_TARGET", "dev")
 DBT_THREADS = Variable.get("DBT_THREADS", "8")
 SNOWFLAKE_CONN_ID = "snowflake_default"
 
-# Common dbt command prefix
-DBT = (
-    f"cd {DBT_PROJECT_DIR} && "
-    f"{PROJECT_ROOT}/.venv/bin/dbt "
-    f"--no-use-colors "
-    f"--profiles-dir {DBT_PROFILES_DIR} "
-    f"--target {DBT_TARGET} "
-)
+# Configurable dbt base command (source env vars + cd to project)
+DBT_BASE = f"set -a; source {PROJECT_ROOT}/.env; set +a && cd {DBT_PROJECT_DIR} && {PROJECT_ROOT}/.venv/bin/dbt --no-use-colors"
+DBT_FLAGS = f"--profiles-dir {DBT_PROFILES_DIR} --target {DBT_TARGET}"
 
 # Failure callback: send Slack alert (configure SlackWebhookOperator or use callbacks)
 def on_failure_callback(context):
@@ -124,33 +119,61 @@ with DAG(
             """,
         )
 
-        # Poll until ingestion tasks complete (simple approach: wait 2 minutes)
-        # Production: replace with sensor polling TASK_HISTORY view
-        wait_for_ingestion = BashOperator(
+        # Poll until ingestion tasks complete
+        # Instead of a simple sleep, we check the TASK_HISTORY
+        # Airflow will retry this 8 times (see DEFAULT_ARGS) until it succeeds
+        wait_for_ingestion = SQLExecuteQueryOperator(
             task_id="wait_for_ingestion_tasks",
-            bash_command=(
-                "sleep 120 && echo 'Snowflake ingestion tasks assumed complete'"
-            ),
+            conn_id=SNOWFLAKE_CONN_ID,
+            sql="""
+                SELECT state 
+                FROM TABLE(information_schema.task_history(task_name=>'TASK_INFER_SCHEMA'))
+                WHERE query_start_time >= DATEADD(minute, -30, CURRENT_TIMESTAMP())
+                ORDER BY completed_time DESC 
+                LIMIT 1;
+            """,
+            # We want it to fail if it's not 'SUCCEEDED' so we can retry or stop
+            # Using a simple check: if the last execution wasn't SUCCEEDED, it's still running or failed.
+            # We'll use a python_callable or just rely on retries if we check for success.
+            # For simplicity, if this returns no rows or state != SUCCEEDED, we can handle it.
+            # Actually, let's use a small bash script that checks dbt seeds/sources or a SQL query that fails.
         )
+        
+        # Refined: A query that fails (div by zero) if the task hasn't finished successfully yet.
+        # This forces Airflow to retry until the task is 'SUCCEEDED'
+        wait_for_ingestion.sql = """
+            SELECT 1/CASE WHEN state = 'SUCCEEDED' THEN 1 ELSE 0 END
+            FROM TABLE(information_schema.task_history(task_name=>'TASK_INFER_SCHEMA'))
+            WHERE query_start_time >= DATEADD(minute, -30, CURRENT_TIMESTAMP())
+            ORDER BY completed_time DESC 
+            LIMIT 1;
+        """
 
         trigger_infer_schema >> wait_for_ingestion
 
     # -----------------------------------------------------------------------
-    # 2. dbt: install dependencies (run once per deployment, not per schedule)
-    #    In production this is baked into the Docker image — not run in the DAG.
-    #    Included here for completeness.
+    # 2. dbt: install dependencies (ensure packages like dbt-expectations are present)
     # -----------------------------------------------------------------------
-    # dbt_deps = BashOperator(
-    #     task_id="dbt_deps",
-    #     bash_command=f"{DBT} deps",
-    # )
+    dbt_deps = BashOperator(
+        task_id="dbt_deps",
+        bash_command=f"{DBT_BASE} deps {DBT_FLAGS}",
+    )
 
     # -----------------------------------------------------------------------
-    # 3. dbt: snapshots (SCD Type 2 — must run before staging reads the snap)
+    # 3. dbt: seeds (lookup tables — must run before marts/staging dependencies)
+    # -----------------------------------------------------------------------
+    dbt_seed = BashOperator(
+        task_id="dbt_seed",
+        bash_command=f"{DBT_BASE} seed {DBT_FLAGS}",
+        pool="dbt_pool",
+    )
+
+    # -----------------------------------------------------------------------
+    # 4. dbt: snapshots (SCD Type 2 — must run before staging reads the snap)
     # -----------------------------------------------------------------------
     dbt_snapshot = BashOperator(
         task_id="dbt_snapshot",
-        bash_command=f"{DBT} snapshot",
+        bash_command=f"{DBT_BASE} snapshot {DBT_FLAGS}",
         pool="dbt_pool",                 # throttle parallel dbt runs
     )
 
@@ -162,10 +185,11 @@ with DAG(
         run_staging = BashOperator(
             task_id="dbt_run_staging",
             bash_command=(
-                f"{DBT} run "
+                f"{DBT_BASE} run "
                 f"--select tag:staging "
                 f"--threads {DBT_THREADS} "
-                f"--fail-fast"
+                f"--fail-fast "
+                f"{DBT_FLAGS}"
             ),
             pool="dbt_pool",
         )
@@ -173,10 +197,12 @@ with DAG(
         test_staging = BashOperator(
             task_id="dbt_test_staging",
             bash_command=(
-                f"{DBT} test "
+                f"{DBT_BASE} test "
                 f"--select tag:staging "
+                f"--exclude tag:marts "
                 f"--store-failures "
-                f"--threads {DBT_THREADS}"
+                f"--threads {DBT_THREADS} "
+                f"{DBT_FLAGS}"
             ),
             pool="dbt_pool",
         )
@@ -191,9 +217,10 @@ with DAG(
         run_intermediate = BashOperator(
             task_id="dbt_run_intermediate",
             bash_command=(
-                f"{DBT} run "
+                f"{DBT_BASE} run "
                 f"--select tag:intermediate "
-                f"--threads {DBT_THREADS}"
+                f"--threads {DBT_THREADS} "
+                f"{DBT_FLAGS}"
             ),
             pool="dbt_pool",
         )
@@ -206,10 +233,11 @@ with DAG(
         run_marts = BashOperator(
             task_id="dbt_run_marts",
             bash_command=(
-                f"{DBT} run "
+                f"{DBT_BASE} run "
                 f"--select tag:marts "
                 f"--threads {DBT_THREADS} "
-                f"--fail-fast"
+                f"--fail-fast "
+                f"{DBT_FLAGS}"
             ),
             pool="dbt_pool",
         )
@@ -217,10 +245,11 @@ with DAG(
         test_marts = BashOperator(
             task_id="dbt_test_marts",
             bash_command=(
-                f"{DBT} test "
+                f"{DBT_BASE} test "
                 f"--select tag:marts "
                 f"--store-failures "
-                f"--threads {DBT_THREADS}"
+                f"--threads {DBT_THREADS} "
+                f"{DBT_FLAGS}"
             ),
             pool="dbt_pool",
         )
@@ -232,7 +261,7 @@ with DAG(
     # -----------------------------------------------------------------------
     source_freshness = BashOperator(
         task_id="dbt_source_freshness",
-        bash_command=f"{DBT} source freshness",
+        bash_command=f"{DBT_BASE} source freshness {DBT_FLAGS}",
         trigger_rule=TriggerRule.ALL_DONE,  # run even if models fail
     )
 
@@ -259,9 +288,11 @@ with DAG(
     #
     (
         start
+        >> dbt_deps
+        >> dbt_seed
         >> sf_group
-        >> dbt_snapshot
         >> staging_group
+        >> dbt_snapshot
         >> int_group
         >> marts_group
         >> source_freshness
