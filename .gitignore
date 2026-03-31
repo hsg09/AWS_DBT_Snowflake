@@ -7,6 +7,8 @@ target/                 # compiled SQL, run artifacts
 dbt_packages/           # installed via `dbt deps` — not committed
 logs/
 .dbt/
+.user.yml
+airflow/*.generated
 
 # CRITICAL: profiles.yml contains credentials even if values are env_var().
 # The committed profiles.yml is a template. Actual profiles with real values
