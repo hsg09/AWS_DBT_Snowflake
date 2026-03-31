@@ -1,0 +1,12 @@
+
+    
+    
+    truncate table "ANALYTICS"."DEV_LOCAL_SEEDS"."PRODUCT_CATEGORIES";
+    -- dbt seed --
+    
+            insert into ANALYTICS.DEV_LOCAL_seeds.product_categories (category_id, category_name, parent_category) values
+            (%s,%s,%s),(%s,%s,%s),(%s,%s,%s),(%s,%s,%s),(%s,%s,%s),(%s,%s,%s),(%s,%s,%s),(%s,%s,%s),(%s,%s,%s),(%s,%s,%s),(%s,%s,%s),(%s,%s,%s),(%s,%s,%s),(%s,%s,%s),(%s,%s,%s),(%s,%s,%s),(%s,%s,%s),(%s,%s,%s),(%s,%s,%s)
+        
+
+;
+  
