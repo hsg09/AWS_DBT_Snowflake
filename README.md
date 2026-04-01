@@ -6,6 +6,12 @@
 ![AWS S3](https://img.shields.io/badge/AWS_S3-569A31?style=flat&logo=amazons3&logoColor=white)
 ![Airflow](https://img.shields.io/badge/Airflow-017CEE?style=flat&logo=apache-airflow&logoColor=white)
 
+---
+
+### [🚀 Start Here: Project Onboarding & Local Setup](./docs/onboarding.md)
+
+---
+
 ## 🎯 Project Overview
 This repository implements a **scalable, production-grade ELT pipeline** that synchronizes transactional e-commerce data from AWS S3 into an analytical Star Schema in Snowflake. 
 
@@ -43,7 +49,15 @@ Detailed architectural diagrams and tech stack justifications are available in t
 ---
 
 ## 🚀 Quick Start
-For new engineers, refer to the [**Developer Onboarding & Setup**](./docs/architecture.md#onboarding) to initialize your local dbt environment and run your first pipeline in under 30 minutes.
+ For new engineers, follow the [**Onboarding: Total Setup Guide**](./docs/onboarding.md) to initialize your cloud and local environments.
+
+### ⏱️ Quick Start (TL;DR)
+1. **Cloud Foundation**: Follow [AWS & Snowflake Setup](./docs/aws_setup.md).
+2. **Environment**: `uv sync && source .venv/bin/activate`
+3. **Secrets**: `cp .env.example .env` (Add Snowflake credentials)
+4. **dbt Initialization**: `dbt deps && dbt debug`
+5. **Orchestration**: `./start_airflow.sh`
+
 
 ### Project Structure:
 - `/airflow`: Orchestration DAGs and operational configs.
@@ -72,6 +86,8 @@ The following technical manuals provide implementation-level detail for each pil
 
 | Manual | Functional Responsibility |
 | :--- | :--- |
+| 🚀 [**Onboarding**](./docs/onboarding.md) | **Start Here**: 6-Step linear "Day 0" setup including environment hydration. |
+| ☁️ [**AWS Setup**](./docs/aws_setup.md) | AWS IAM policies, S3 prefix architecture, and Snowflake storage integration. |
 | 🗺️ [**Architecture**](./docs/architecture.md) | Logical Medallion layers, Physical Cloud topology, and Tech Stack justifications. |
 | 🛤️ [**Data Flow**](./docs/data_flow.md) | Technical "Life of a Record" narrative tracing data from S3 through to Gold Marts. |
 | 📥 [**Data Ingestion**](./docs/ingestion.md) | Snowpark dynamic schema inference, S3 external stages, and idempotency tracking. |
